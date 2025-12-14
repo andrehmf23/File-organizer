@@ -1,4 +1,4 @@
-# LibrarySet
+# File organizer
 
 Projeto Python organizado para gerenciar funcionalidades e testes de forma modular.
 
@@ -27,9 +27,11 @@ Exemplos de conteúdo:
 ### `scripts/`
 Esta pasta contém **funções e classes auxiliares** que executam tarefas externas ou processos auxiliares, que não fazem parte do código principal do pacote.
 
+```python
 LibrarySet/
 ├── venv/           ← ambiente virtual
 ├── main.py         ← script principal
 ├── utils/          ← funções e classes auxiliares
 ├── tests/          ← testes automatizados
 └── scripts/        ← scripts auxiliares executáveis
+```
