@@ -1,31 +1,12 @@
-print("Teste")
+from utils.fileOrganizer import *
 
-"""
---------------Coleta de arquivos--------------
+org = FileOrganizer(
+    target=r"",
+    destination=r"",
+    level_limit=10,
+    organizer=Organizer.DATE,
+    date_tree=True,
+    date_preset="ym"
+)
 
-Coleta por nível
-
-Data (Filtro de tipos)
-Alfabeto (Filtro de tipos)
-Tipos
-
-Separar em pastas
-
-Direta
-Data (Filtro de tipos)
-Alfabeto (Filtro de tipos)
-Tipos
-Padrão <- Complexidade maior
-
-
-Path
-
-Caminho Alvo
-Caminho Destino
-
-
-Extra
-
-Eliminação de cópia
-
-"""
+org.collect()
