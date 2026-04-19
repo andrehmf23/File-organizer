@@ -3,60 +3,96 @@ import shutil
 from datetime import datetime
 import os
 
-# ----------------------------
-# Presets e formatos de data
-# ----------------------------
-
+# Formatar para identificação de data
 DATE_FORMAT = {
     'y': '%Y',
     'm': '%m',
     'd': '%d'
 }
 
-
-# ----------------------------
-# Classe principal
-# ----------------------------
-
 class FileOrganizer:
     """Organiza arquivos automaticamente
     
     Identifica os arquivos no caminho alvo e depois de passar 
-    por filtros move-os ou copia-os para o caminho destinado
+    por filtros move-os ou copia-os para o caminho destinado.
     """
 
     def __init__(
         self,
-        target: str, # Caminho da coleta
-        destination: str, # Caminho da organização
-        level_limit: int | None = None, # Limite de leitura de profundidade
-        copy: bool = True, # Copiar arquivos, caso contrario os move
-        structure: str = None, # Opcional
+        target: str, # Caminho alvo
+        destination: str, # Caminho destinado
+        level_limit: int | None = None,
+        copy: bool = True,
+        structure: str = None,
+        show: bool = False
     ):
-        self.target = Path(target)
+        """
+        Args:
+            target: Caminho de origem dos arquivos.
+            destination: Caminho onde os arquivos serão organizados.
+            level_limit: Limite de profundidade de busca.
+            copy: Se True, copia; se False, move.
+            structure: Define a estrutura de pastas.
+            show: Ativa print de progresso.
+
+            Identificadores do structure:
+                'a' -> Alfabético
+                'y' / 'm' / 'd' -> Ano, Mês, Dia
+                't' -> Data
+                's' -> Sufixo (Extensão)
+        """
+
+        self.target: Path = Path(target)
+
+        if not self.target.exists():
+            raise ValueError("target does not exist!")
+
         self.destination = Path(destination)
+
+        if not self.destination.exists():
+            self.destination.mkdir(parents=True, exist_ok=True)
         
         self.level_limit = level_limit
         self.copy = copy
 
         self.structure = structure.lower() if structure else None
         
-        # Filtros de busca
+        # Filtro de busca
         self.filter = {
             "name": None,
             "type": None,
             "date": None
         }
 
-        self.destination.mkdir(parents=True, exist_ok=True)
+        self.show = show
 
         # Variáveis temporárias
         self._destination_resolve = self.destination.resolve()
-        
-    # ----------------------------
-    # Filtros
-    # ----------------------------
 
+        # Contadores do progresso
+        self.count_max = self._count_files(self.target)
+        self.count_proportional = max(1, self.count_max // 100)
+        self.count_current = 0
+
+
+    
+    def _count_files(self, current: Path, level: int = 0):
+        if self.level_limit is not None and level > self.level_limit:
+            return 0
+
+        counter = 0
+
+        for item in current.iterdir():
+            if item.is_file():
+                counter += 1
+            else:
+                if item.resolve() == self._destination_resolve:
+                    continue
+                counter += self._count_files(item, level + 1)
+
+        return counter
+
+    
     def set_filter(self, name=None, type=None, date_start=None, date_end=None):
         self.filter["name"] = name
         self.filter["type"] = type
@@ -69,16 +105,9 @@ class FileOrganizer:
         else:
             self.filter["date"] = None
     
-    # ----------------------------
-    # Coleta recursiva
-    # ----------------------------
-    # Encontra multiplos arquivos e pasta de um diretório
-    # Se pasta, entra dentro dela
-    # Se arquivo, filtra e envia para organize
-
     def collect(self):
 
-        # Otimização do stat do Path
+        # Evita chamadas desnecessárias ao stat (melhora performance)
         needs_stat = (
             self.filter["date"] is not None or
             (self.structure and any(c in self.structure for c in "ymdt"))
@@ -86,14 +115,21 @@ class FileOrganizer:
 
         self._collect(self.target, needs_stat)
 
+        if self.show:
+            print(f"\nFinalizado [{self.count_current}/{self.count_max}]")
+    
     def _collect(self, current: Path, needs_stat: bool, level: int = 0):
+        """Percorre recursivamente diretórios coletando arquivos que atendem aos filtros."""
 
         if self.level_limit is not None and level > self.level_limit:
             return
 
         for item in current.iterdir():
             if item.is_file():
-                
+                self.count_current += 1
+                if self.show and self.count_current % self.count_proportional == 0:
+                    print(f"Progresso [{self.count_current}/{self.count_max}]", end="\r")
+
                 if self.filter["name"] is not None and self.filter["name"] not in item.name:
                     continue
 
@@ -110,37 +146,34 @@ class FileOrganizer:
 
                 self._organize(item, self.destination, stat)
 
-            elif item.is_dir():
+            else:
 
                 if item.resolve() == self._destination_resolve:
                     continue
 
                 self._collect(item, needs_stat, level + 1)
     
-    # ----------------------------
-    # Caminho único
-    # ----------------------------
-    # Reescreve o caminho para ser único se necessário
-
     def _single_files(self, destination: Path) -> Path:
+        """Gera um novo caminho único caso o arquivo já exista no destino."""
+        if not destination.exists():
+            return destination
 
-        # Assume que já está criado
-
+        save_destination = destination
         i = 1
-        while True:
-            new_destination = destination.with_stem(f"{destination.stem}_{i}")
-            if not new_destination.exists():
-                return new_destination
+        while destination.exists():
+            destination = save_destination.with_stem(f"{save_destination.stem}_{i}")
             i += 1
 
-    # ----------------------------
-    # Organização
-    # ----------------------------
-
+        return destination
+    
+    # Estrutura o caminho com pastas
     def _structured_path(self, target: Path, destination: Path, stat: os.stat_result):
-
         """
-        Estrutura o caminho do destino deacordo com o comandos do structure
+        Constrói o caminho de destino baseado na string `structure`.
+
+        Exemplo:
+            'ymd' -> /2024/03/15
+            'as'  -> /A/txt
         """
 
         date = None
@@ -175,11 +208,10 @@ class FileOrganizer:
 
     def _organize(self, target: Path, destination: Path, stat: os.stat_result):
 
-        # Estrutura caminho se uma estrutura existir
+        # Estrutura caminho
         if self.structure:
             destination = self._structured_path(target, destination, stat)
-
-        # Cria diretórios
+        
         destination.mkdir(parents=True, exist_ok=True)
 
         # Evita sobrescrita
