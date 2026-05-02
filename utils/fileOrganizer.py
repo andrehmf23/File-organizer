@@ -42,12 +42,12 @@ class FileOrganizer:
                 's' -> Sufixo (Extensão)
         """
 
-        self.target: Path = Path(target)
+        self.target: Path = Path(target).resolve()
 
         if not self.target.exists():
             raise ValueError("target does not exist!")
 
-        self.destination = Path(destination)
+        self.destination = Path(destination).resolve()
 
         if not self.destination.exists():
             self.destination.mkdir(parents=True, exist_ok=True)
@@ -55,7 +55,9 @@ class FileOrganizer:
         self.level_limit = level_limit
         self.copy = copy
 
-        self.structure = structure.lower() if structure else None
+        #!!unique
+        allowed = set('aymdts')
+        self.structure = ''.join(c for c in structure.lower() if c in allowed) if structure else None
         
         # Filtro de busca
         self.filter = {
@@ -66,15 +68,23 @@ class FileOrganizer:
 
         self.show = show
 
-        # Variáveis temporárias
-        self._destination_resolve = self.destination.resolve()
-
         # Contadores do progresso
         self.count_max = self._count_files(self.target)
         self.count_proportional = max(1, self.count_max // 100)
         self.count_current = 0
 
-
+        self.initial_alphabet : str = None
+        self.final_aphalbet : str = None
+    
+    def aphabetical_range(self, initial_alphabet: str, final_aphalbet: str):
+        initial_alphabet = initial_alphabet.upper()
+        final_aphalbet = final_aphalbet.upper()
+        if initial_alphabet < final_aphalbet:
+            self.initial_alphabet = initial_alphabet
+            self.final_aphalbet = final_aphalbet
+        else:
+            self.initial_alphabet = final_aphalbet
+            self.final_aphalbet = initial_alphabet
     
     def _count_files(self, current: Path, level: int = 0):
         if self.level_limit is not None and level > self.level_limit:
@@ -86,7 +96,7 @@ class FileOrganizer:
             if item.is_file():
                 counter += 1
             else:
-                if item.resolve() == self._destination_resolve:
+                if item == self.destination:
                     continue
                 counter += self._count_files(item, level + 1)
 
@@ -110,7 +120,7 @@ class FileOrganizer:
         # Evita chamadas desnecessárias ao stat (melhora performance)
         needs_stat = (
             self.filter["date"] is not None or
-            (self.structure and any(c in self.structure for c in "ymdt"))
+            bool(set(self.structure or "") & set("ymdt"))
         )
 
         self._collect(self.target, needs_stat)
@@ -147,21 +157,18 @@ class FileOrganizer:
                 self._organize(item, self.destination, stat)
 
             else:
-
-                if item.resolve() == self._destination_resolve:
+                if item == self.destination:
                     continue
 
                 self._collect(item, needs_stat, level + 1)
     
     def _single_files(self, destination: Path) -> Path:
         """Gera um novo caminho único caso o arquivo já exista no destino."""
-        if not destination.exists():
-            return destination
 
-        save_destination = destination
         i = 1
+        base = destination
         while destination.exists():
-            destination = save_destination.with_stem(f"{save_destination.stem}_{i}")
+            destination = base.with_stem(f"{base.stem}_{i}")
             i += 1
 
         return destination
@@ -182,8 +189,18 @@ class FileOrganizer:
 
             # Alfabético
             if command == 'a':
-                c = next((ch for ch in target.name if ch.isalpha()), '#').upper()
-                destination /= c
+                c = '#'
+
+                for ch in target.name:
+                    if ch.isalpha():
+                        c = ch.upper()
+                        break
+
+                if self.initial_alphabet is not None and self.final_aphalbet is not None:
+                    if not (self.initial_alphabet <= c <= self.final_aphalbet):
+                        destination /= "[OTHERS]"
+                    else:
+                        destination /= c
 
             # Dia, Mês ou ano
             elif command in ('y','m','d'):
@@ -209,10 +226,11 @@ class FileOrganizer:
     def _organize(self, target: Path, destination: Path, stat: os.stat_result):
 
         # Estrutura caminho
-        if self.structure:
+        if self.structure is not None:
             destination = self._structured_path(target, destination, stat)
-        
-        destination.mkdir(parents=True, exist_ok=True)
+
+        if not destination.exists():
+            destination.mkdir(parents=True, exist_ok=True)
 
         # Evita sobrescrita
         destination = self._single_files(destination / target.name)
